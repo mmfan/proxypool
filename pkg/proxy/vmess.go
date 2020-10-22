@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -215,7 +216,22 @@ func ParseVmessLink(link string) (*Vmess, error) {
 		vmessJson := vmessLinkJson{}
 		err = json.Unmarshal([]byte(payload), &vmessJson)
 		if err != nil {
-			return nil, err
+			// fix json.Unmarshal error, convert invalid value to string and set with reflect
+			// TODO this can be used in all Parsers
+			typ := reflect.TypeOf(err)
+			if typ.String() == "*json.UnmarshalTypeError" {
+				e := err.(*json.UnmarshalTypeError)
+				jsonOption := tool.StrFirstToUpper(e.Field) // get type error field name in json
+				s := string([]byte(payload)[:e.Offset])
+				s = s[strings.LastIndex(s, ":")+1:] // "ps: 1000," will return 1000
+				ele := reflect.ValueOf(&vmessJson)  // refer to https://blog.golang.org/laws-of-reflection
+				f := ele.Elem().FieldByName(jsonOption)
+				if f.IsValid() && f.CanSet() && f.Kind() == reflect.String { // multi check in case of reflect panic
+					f.SetString(s)
+				}
+			} else {
+				return nil, err
+			}
 		}
 		port := 443
 		portInterface := vmessJson.Port
